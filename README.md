@@ -135,5 +135,169 @@ resources/static/error/4xx.html<br/>
 3. 적용 대상이 없을 때 뷰 이름( error )<br/>
 resources/templates/error.html<br/>
 해당 경로 위치에 HTTP 상태 코드 이름의 뷰 파일을 넣어두면 된다.<br/>
+##필터와 인터셉터에 예외처리 (코드 참고)
 
+API 예외 처리는 어떻게 해야할까?
+HTML 페이지의 경우 지금까지 설명했던 것 처럼 4xx, 5xx와 같은 오류 페이지만 있으면 대부분의 문제를
+해결할 수 있다.
+그런데 API의 경우에는 생각할 내용이 더 많다. 오류 페이지는 단순히 고객에게 오류 화면을 보여주고
+끝이지만, API는 각 오류 상황에 맞는 오류 응답 스펙을 정하고, JSON으로 데이터를 내려주어야 한다.
 
+![image](https://user-images.githubusercontent.com/69129562/206125967-38866e43-f554-4ee4-b44b-39d573599924.png)
+produces = MediaType.APPLICATION_JSON_VALUE 의 뜻은 클라이언트가 요청하는 HTTP Header의
+Accept 의 값이 application/json 일 때 해당 메서드가 호출된다는 것이다. 결국 클라어인트가 받고
+싶은 미디어타입이 json이면 이 컨트롤러의 메서드가 호출된다.
+응답 데이터를 위해서 Map 을 만들고 status , message 키에 값을 할당했다. Jackson 라이브러리는
+Map 을 JSON 구조로 변환할 수 있다.
+ResponseEntity 를 사용해서 응답하기 때문에 메시지 컨버터가 동작하면서 클라이언트에 JSON이
+반환된다
+
+{
+ "message": "잘못된 사용자",
+ "status": 500
+}
+에러를 발생시키면 이렇게 api의 스펙이 뜬다.
+
+API 예외 처리도 스프링 부트가 제공하는 기본 오류 방식을 사용할 수 있다.
+스프링 부트가 제공하는 BasicErrorController 코드를 보자.
+![image](https://user-images.githubusercontent.com/69129562/206130264-05d1ea8c-6218-4db9-9f59-b79999c441ad.png)
+/error 동일한 경로를 처리하는 errorHtml() , error() 두 메서드를 확인할 수 있다.
+errorHtml() : produces = MediaType.TEXT_HTML_VALUE : 클라이언트 요청의 Accept 해더 값이
+text/html 인 경우에는 errorHtml() 을 호출해서 view를 제공한다.
+error() : 그외 경우에 호출되고 ResponseEntity 로 HTTP Body에 JSON 데이터를 반환한다.
+스프링 부트의 예외 처리
+앞서 학습했듯이 스프링 부트의 기본 설정은 오류 발생시 /error 를 오류 페이지로 요청한다.
+BasicErrorController 는 이 경로를 기본으로 받는다. ( server.error.path 로 수정 가능, 기본 경로 /
+error )
+
+예외가 발생해서 서블릿을 넘어 WAS까지 예외가 전달되면 HTTP 상태코드가 500으로 처리된다.
+예를 들어서 IllegalArgumentException 을 처리하지 못해서 컨트롤러 밖으로 넘어가는 일이 발생하면
+HTTP 상태코드를 400으로 처리하고 싶다. 어떻게 해야할까
+HandlerExceptionResolver
+스프링 MVC는 컨트롤러(핸들러) 밖으로 예외가 던져진 경우 예외를 해결하고, 동작을 새로 정의할 수 있는
+방법을 제공한다. 컨트롤러 밖으로 던져진 예외를 해결하고, 동작 방식을 변경하고 싶으면
+HandlerExceptionResolver 를 사용하면 된다. 줄여서 ExceptionResolver 라 한다
+![image](https://user-images.githubusercontent.com/69129562/206132843-1dc80060-2375-4407-8563-7d726d569e40.png)
+![image](https://user-images.githubusercontent.com/69129562/206132918-f6db9b2c-76bc-45d6-8e1f-3d5dbcaee165.png)
+참고: ExceptionResolver 로 예외를 해결해도 postHandle() 은 호출되지 않는다
+
+![image](https://user-images.githubusercontent.com/69129562/206135122-5503d252-5b2f-407a-ab82-167f2bf920ee.png)
+ExceptionResolver 가 ModelAndView 를 반환하는 이유는 마치 try, catch를 하듯이, Exception 을
+처리해서 정상 흐름 처럼 변경하는 것이 목적이다. 이름 그대로 Exception 을 Resolver(해결)하는 것이
+목적이다.
+여기서는 IllegalArgumentException 이 발생하면 response.sendError(400) 를 호출해서 HTTP 
+상태 코드를 400으로 지정하고, 빈 ModelAndView 를 반환한다.
+반환 값에 따른 동작 방식
+HandlerExceptionResolver 의 반환 값에 따른 DispatcherServlet 의 동작 방식은 다음과 같다.
+빈 ModelAndView: new ModelAndView() 처럼 빈 ModelAndView 를 반환하면 뷰를 렌더링 하지
+않고, 정상 흐름으로 서블릿이 리턴된다.
+ModelAndView 지정: ModelAndView 에 View , Model 등의 정보를 지정해서 반환하면 뷰를 렌더링
+한다.
+null: null 을 반환하면, 다음 ExceptionResolver 를 찾아서 실행한다. 만약 처리할 수 있는
+ExceptionResolver 가 없으면 예외 처리가 안되고, 기존에 발생한 예외를 서블릿 밖으로 던진다.
+ExceptionResolver 활용
+예외 상태 코드 변환
+예외를 response.sendError(xxx) 호출로 변경해서 서블릿에서 상태 코드에 따른 오류를
+처리하도록 위임
+이후 WAS는 서블릿 오류 페이지를 찾아서 내부 호출, 예를 들어서 스프링 부트가 기본으로 설정한 /
+error 가 호출됨
+뷰 템플릿 처리
+ModelAndView 에 값을 채워서 예외에 따른 새로운 오류 화면 뷰 렌더링 해서 고객에게 제공
+API 응답 처리
+response.getWriter().println("hello"); 처럼 HTTP 응답 바디에 직접 데이터를 넣어주는
+것도 가능하다. 여기에 JSON 으로 응답하면 API 응답 처리를 할 수 있다.
+
+WebMvcConfigurer 를 통해 등록
+@Override
+public void extendHandlerExceptionResolvers(List<HandlerExceptionResolver>
+resolvers) {
+ resolvers.add(new MyHandlerExceptionResolver());
+}
+
+예외가 발생하면 WAS까지 예외가 던져지고, WAS에서 오류 페이지 정보를 찾아서 다시 /error 를
+호출하는 과정은 생각해보면 너무 복잡하다. ExceptionResolver 를 활용하면 예외가 발생했을 때 이런
+복잡한 과정 없이 여기에서 문제를 깔끔하게 해결할 수 있다
+![image](https://user-images.githubusercontent.com/69129562/206137935-6730666b-b17c-4a6f-a2b8-e00ed9cc81c5.png)
+ExceptionResolver 를 사용하면 컨트롤러에서 예외가 발생해도 ExceptionResolver 에서 예외를
+처리해버린다.
+따라서 예외가 발생해도 서블릿 컨테이너까지 예외가 전달되지 않고, 스프링 MVC에서 예외 처리는 끝이
+난다.
+결과적으로 WAS 입장에서는 정상 처리가 된 것이다. 이렇게 예외를 이곳에서 모두 처리할 수 있다는 것이
+핵심이다.
+서블릿 컨테이너까지 예외가 올라가면 복잡하고 지저분하게 추가 프로세스가 실행된다. 반면에
+ExceptionResolver 를 사용하면 예외처리가 상당히 깔끔해진다.
+
+스프링 부트가 기본으로 제공하는 ExceptionResolver 는 다음과 같다.
+HandlerExceptionResolverComposite 에 다음 순서로 등록
+1. ExceptionHandlerExceptionResolver
+2. ResponseStatusExceptionResolver
+3. DefaultHandlerExceptionResolver 우선 순위가 가장 낮다.
+
+ExceptionHandlerExceptionResolver
+@ExceptionHandler 을 처리한다. API 예외 처리는 대부분 이 기능으로 해결한다. 조금 뒤에 자세히
+설명한다.
+
+ResponseStatusExceptionResolver
+HTTP 상태 코드를 지정해준다.
+예) @ResponseStatus(value = HttpStatus.NOT_FOUND)
+
+DefaultHandlerExceptionResolver
+스프링 내부 기본 예외를 처리한다.
+
+ResponseStatusExceptionResolver 는 예외에 따라서 HTTP 상태 코드를 지정해주는 역할을 한다.
+
+@ResponseStatus 가 달려있는 예외
+@ResponseStatus(code = HttpStatus.BAD_REQUEST, reason = "잘못된 요청 오류")
+public class BadRequestException extends RuntimeException {
+}
+BadRequestException 예외가 컨트롤러 밖으로 넘어가면 ResponseStatusExceptionResolver 예외가
+해당 애노테이션을 확인해서 오류 코드를 HttpStatus.BAD_REQUEST (400)으로 변경하고, 메시지도
+담는다.
+ResponseStatusExceptionResolver 코드를 확인해보면 결국 response.sendError(statusCode, 
+resolvedReason) 를 호출하는 것을 확인할 수 있다.
+sendError(400) 를 호출했기 때문에 WAS에서 다시 오류 페이지( /error )를 내부 요청한다
+
+ResponseStatusException 예외
+@ResponseStatus 는 개발자가 직접 변경할 수 없는 예외에는 적용할 수 없다. (애노테이션을 직접 넣어야
+하는데, 내가 코드를 수정할 수 없는 라이브러리의 예외 코드 같은 곳에는 적용할 수 없다.)
+추가로 애노테이션을 사용하기 때문에 조건에 따라 동적으로 변경하는 것도 어렵다. 이때는
+ResponseStatusException 예외를 사용하면 된다.
+@GetMapping("/api/response-status-ex2")
+public String responseStatusEx2() {
+ throw new ResponseStatusException(HttpStatus.NOT_FOUND, "error.bad", new
+IllegalArgumentException());
+}
+
+이번에는 DefaultHandlerExceptionResolver 를 살펴보자.
+DefaultHandlerExceptionResolver 는 스프링 내부에서 발생하는 스프링 예외를 해결한다.
+대표적으로 파라미터 바인딩 시점에 타입이 맞지 않으면 내부에서 TypeMismatchException 이
+발생하는데, 이 경우 예외가 발생했기 때문에 그냥 두면 서블릿 컨테이너까지 오류가 올라가고, 결과적으로
+500 오류가 발생한다.
+그런데 파라미터 바인딩은 대부분 클라이언트가 HTTP 요청 정보를 잘못 호출해서 발생하는 문제이다. 
+HTTP 에서는 이런 경우 HTTP 상태 코드 400을 사용하도록 되어 있다.
+DefaultHandlerExceptionResolver 는 이것을 500 오류가 아니라 HTTP 상태 코드 400 오류로
+변경한다.
+스프링 내부 오류를 어떻게 처리할지 수 많은 내용이 정의되어 있다.
+코드 확인
+DefaultHandlerExceptionResolver.handleTypeMismatch 를 보면 다음과 같은 코드를 확인할 수
+있다.
+response.sendError(HttpServletResponse.SC_BAD_REQUEST) (400)
+결국 response.sendError() 를 통해서 문제를 해결한다.
+sendError(400) 를 호출했기 때문에 WAS에서 다시 오류 페이지( /error )를 내부 요청한다.
+ex) 
+@GetMapping("/api/default-handler-ex")
+public String defaultException(@RequestParam Integer data) {
+ return "ok";
+}
+Integer data 에 문자를 입력하면 내부에서 TypeMismatchException 이 발생한다.
+실행
+http://localhost:8080/api/default-handler-ex?data=hello&message=
+
+지금까지 HTTP 상태 코드를 변경하고, 스프링 내부 예외의 상태코드를 변경하는 기능도 알아보았다. 
+그런데 HandlerExceptionResolver 를 직접 사용하기는 복잡하다. API 오류 응답의 경우 response 에
+직접 데이터를 넣어야 해서 매우 불편하고 번거롭다. ModelAndView 를 반환해야 하는 것도 API에는 잘
+맞지 않는다.
+스프링은 이 문제를 해결하기 위해 @ExceptionHandler 라는 매우 혁신적인 예외 처리 기능을 제공한다. 
+그것이 아직 소개하지 않은 ExceptionHandlerExceptionResolver 이다.
+
+API 예외 처리 - @ExceptionHandler 22
