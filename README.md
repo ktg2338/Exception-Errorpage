@@ -329,7 +329,7 @@ RuntimeException 예외를 서로 다른 방식으로 처리하고 싶다면 어
 스프링은 ExceptionHandlerExceptionResolver 를 기본으로 제공하고, 기본으로 제공하는
 ExceptionResolver 중에 우선순위도 가장 높다. 실무에서 API 예외 처리는 대부분 이 기능을 사용한다.<br/>
 <br/>
-![image](https://user-images.githubusercontent.com/69129562/206461218-45dae5e3-7999-490a-887b-1a61d87ad3ce.png)<br/>
+![image](https://user-images.githubusercontent.com/69129562/206461218-45dae5e3-7999-490a-887b-1a61d87ad3ce.png)
 @ExceptionHandler 예외 처리 방법<br/>
 @ExceptionHandler 애노테이션을 선언하고, 해당 컨트롤러에서 처리하고 싶은 예외를 지정해주면 된다.<br/>
 해당 컨트롤러에서 예외가 발생하면 이 메서드가 호출된다. 참고로 지정한 예외 또는 그 예외의 자식
@@ -386,5 +386,5 @@ illegalExHandle() 를 실행한다. @RestController 이므로 illegalExHandle() 
 @ControllerAdvice 에 대상을 지정하지 않으면 모든 컨트롤러에 적용된다. (글로벌 적용)<br/>
 @RestControllerAdvice 는 @ControllerAdvice 와 같고, @ResponseBody 가 추가되어 있다.<br/>
 @Controller , @RestController 의 차이와 같다.<br/>
-![image](https://user-images.githubusercontent.com/69129562/206464130-cf16080f-cbd0-4445-8591-1202c855848d.png)<br/>
+![image](https://user-images.githubusercontent.com/69129562/206464130-cf16080f-cbd0-4445-8591-1202c855848d.png)
 
